@@ -89,7 +89,6 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                         val baseName = baseNameMatch!!.groupValues[1]
                         val manifest = psarc.inflateManifest(f)
                         val attributes = manifest.entries.values.first().values.first()
-                        println(attributes.arrangementName)
                         when (attributes.arrangementName) {
                             "Lead", "Combo", "Rhythm", "Bass", "Vocals", "JVocals" ->
                                 songs.add(
@@ -105,11 +104,12 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                     val wav = File(app.cacheDir, "${songs[0].songKey}.wav")
                     val opus = File(app.filesDir, "${songs[0].songKey}.opus")
 
+                    // Look for largest .wem song file, because sometimes there is a preview file alongside the real song
                     val wemBA = psarc.listFiles("""audio/windows/.*\.wem""".toRegex())
                         .map { candidate -> psarc.inflateFile(candidate) }
-                        .maxByOrNull { ba -> ba.size }
+                        .maxBy { ba -> ba.size }
 
-                    wem.writeBytes(wemBA!!)
+                    wem.writeBytes(wemBA)
 
                     val where = File(app.applicationInfo.nativeLibraryDir)
                     val wem2wav = ProcessBuilder("./libvgmstream.so", "-o", wav.absolutePath, wem.absolutePath)
