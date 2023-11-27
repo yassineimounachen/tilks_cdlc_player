@@ -69,6 +69,7 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
             songDao.deleteSong(song.song.key)
         }
     }
+
     @ExperimentalUnsignedTypes
     fun decodeAndInsert(uri : Uri, handler : (Throwable?) -> Unit) =
         viewModelScope.launch(Dispatchers.IO) {
@@ -133,8 +134,7 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
         }
 
     private suspend fun insert(songs : List<Song2014>) {
-        val lyricsSongs = songs.filter { s -> s.vocals.isNotEmpty() }
-
+        val lyricsSongs = songs.filter { s -> s.vocals.isNotEmpty() }.toHashSet()
         for (song in songs) {
             if (song in lyricsSongs) {
                 app.openFileOutput("${song.songKey}.lyrics.xml", Context.MODE_PRIVATE).use {
