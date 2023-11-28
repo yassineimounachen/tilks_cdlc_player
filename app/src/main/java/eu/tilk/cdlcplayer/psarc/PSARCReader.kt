@@ -131,6 +131,7 @@ class PSARCReader(private val inputStream : FileInputStream) {
                         if (bytes == 0) break
                         output(obuf, bytes)
                     }
+                    inflater.end()
                 } else output(buffer)
             }
             zChunkID++
@@ -153,6 +154,7 @@ class PSARCReader(private val inputStream : FileInputStream) {
                 if (bytes > 0)
                     outStream.write(outBuffer, 0, bytes)
             }
+            inflater.end()
             return outStream.toByteArray()
         }
 
