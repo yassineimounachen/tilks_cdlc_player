@@ -152,6 +152,8 @@ class SongListActivity: AppCompatActivity() {
 
             progressLayout.visibility = View.VISIBLE
             progressBar.isIndeterminate = true
+            progressBar.progress = 0
+            progressText.text = "0%"
             songListViewModel.songAddProgress.value = 0
 
             songListViewModel.songAddProgress.observeAndCall(this) {
