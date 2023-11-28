@@ -109,9 +109,18 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
 
                     val groupedSongs = songs.groupBy { song2014 -> song2014.songKey }
 
-                    groupedSongs.keys.forEachIndexed { i, songKey ->
+                    var doneCount = 0
+                    groupedSongs.keys.forEach { songKey ->
                         makeWem(songKey, psarc)
-                        songAddProgress.postValue(10 + (((i+1)*90.0)/groupedSongs.keys.size).roundToInt())
+                        doneCount += 1
+                        songAddProgress.postValue(10 + (((doneCount)*10.0)/groupedSongs.keys.size).roundToInt())
+                    }
+
+                    doneCount = 0
+                    groupedSongs.keys.forEachParallel { songKey ->
+                        makeOpus(songKey)
+                        doneCount += 1
+                        songAddProgress.postValue(20 + (((doneCount)*80.0)/groupedSongs.keys.size).roundToInt())
                     }
 
                     insert(groupedSongs)
@@ -122,16 +131,16 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
             }
         }
 
+    fun <A>Collection<A>.forEachParallel(f: suspend (A) -> Unit): Unit = runBlocking {
+        map { async(Dispatchers.IO.limitedParallelism(4)) { f(it) } }.forEach { it.await() }
+    }
+
     private fun makeWem(songKey : String, psarc : PSARCReader) {
         val bnk = File(app.cacheDir, "$songKey.bnk")
         val wem = File(app.cacheDir, "$songKey.wem")
-        val wav = File(app.cacheDir, "$songKey.wav")
-        val opus = File(app.filesDir, "$songKey.opus")
-
-        val bnkBA = psarc.inflateFile("audio/windows/song_${songKey.lowercase()}.bnk")
-
-        bnk.writeBytes(bnkBA)
         val where = File(app.applicationInfo.nativeLibraryDir)
+
+        bnk.writeBytes(psarc.inflateFile("audio/windows/song_${songKey.lowercase()}.bnk"))
         val bnkInfo =
             ProcessBuilder("./libvgmstream.so", "-m", bnk.absolutePath)
                 .directory(where)
@@ -139,13 +148,19 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
         bnkInfo.waitFor()
         val bnkInfoText =
             bnkInfo.inputStream.readBytes().toString(Charsets.UTF_8)
+        bnkInfo.inputStream.close()
         bnkInfo.destroy()
         bnk.delete()
 
         val streamName = """stream name: ([0-9]+)""".toRegex().find(bnkInfoText)!!.groupValues[1]
-        val wemBA = psarc.inflateFile("audio/windows/$streamName.wem")
+        wem.writeBytes(psarc.inflateFile("audio/windows/$streamName.wem"))
+    }
 
-        wem.writeBytes(wemBA)
+    private fun makeOpus(songKey : String) {
+        val wem = File(app.cacheDir, "$songKey.wem")
+        val wav = File(app.cacheDir, "$songKey.wav")
+        val opus = File(app.filesDir, "$songKey.opus")
+        val where = File(app.applicationInfo.nativeLibraryDir)
 
         val wem2wav = ProcessBuilder(
             "./libvgmstream.so",
@@ -191,6 +206,7 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                 }
             }
         }
+
         database.withTransaction {
             for (song in songs.values.flatten()) {
                 if (song.vocals.isEmpty()) arrangementDao.insert(Arrangement(song))
