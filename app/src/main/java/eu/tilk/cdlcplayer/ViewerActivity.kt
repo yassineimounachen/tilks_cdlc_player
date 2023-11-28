@@ -98,8 +98,8 @@ class ViewerActivity : AppCompatActivity() {
     }
 
     private fun playMusic() {
-        val opus = File(this.filesDir, "${songViewModel.song.value!!.songKey}.opus")
-        player!!.setMediaItem(MediaItem.fromUri(opus.toUri()))
+        val ogg = File(this.filesDir, "${songViewModel.song.value!!.songKey}.ogg")
+        player!!.setMediaItem(MediaItem.fromUri(ogg.toUri()))
         player!!.prepare()
         player!!.seekTo(if (this::glView.isInitialized) glView.currentTime() else 0)
         player!!.setPlaybackSpeed(songViewModel.speed.value!!)
