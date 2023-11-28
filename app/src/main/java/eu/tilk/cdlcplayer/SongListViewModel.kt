@@ -23,6 +23,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
+import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
 import com.fasterxml.jackson.dataformat.xml.XmlMapper
@@ -35,11 +36,14 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.UUID
+import kotlin.math.roundToInt
 
 class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
     private val database = SongRoomDatabase.getDatabase(app)
     private val songDao : SongDao = SongRoomDatabase.getDatabase(app).songDao()
     private val arrangementDao : ArrangementDao = SongRoomDatabase.getDatabase(app).arrangementDao()
+    val songAddProgress = MutableLiveData(0)
+
     private fun exceptionHandler(handler : (Throwable) -> Unit) =
         CoroutineExceptionHandler{_ , throwable ->
             viewModelScope.launch(Dispatchers.Main) {
@@ -101,31 +105,16 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                         }
                     }
 
-                    val wem = File(app.cacheDir, "${songs[0].songKey}.wem")
-                    val wav = File(app.cacheDir, "${songs[0].songKey}.wav")
-                    val opus = File(app.filesDir, "${songs[0].songKey}.opus")
+                    songAddProgress.postValue(10)
 
-                    // Look for largest .wem song file, because sometimes there is a preview file alongside the real song
-                    val wemBA = psarc.listFiles("""audio/windows/.*\.wem""".toRegex())
-                        .map { candidate -> psarc.inflateFile(candidate) }
-                        .maxBy { ba -> ba.size }
+                    val groupedSongs = songs.groupBy { song2014 -> song2014.songKey }
 
-                    wem.writeBytes(wemBA)
+                    groupedSongs.keys.forEachIndexed { i, songKey ->
+                        makeWem(songKey, psarc)
+                        songAddProgress.postValue(10 + (((i+1)*90.0)/groupedSongs.keys.size).roundToInt())
+                    }
 
-                    val where = File(app.applicationInfo.nativeLibraryDir)
-                    val wem2wav = ProcessBuilder("./libvgmstream.so", "-o", wav.absolutePath, wem.absolutePath)
-                        .directory(where)
-                        .start()
-                    wem2wav.waitFor()
-                    wem.delete()
-
-                    val wav2opus = ProcessBuilder("./libopusenc.so", "--comp", "0", wav.absolutePath, opus.absolutePath)
-                        .directory(where)
-                        .start()
-                    wav2opus.waitFor()
-                    wav.delete()
-
-                    insert(songs)
+                    insert(groupedSongs)
                 }
                 withContext(Dispatchers.Main) { handler(null) }
             } catch (throwable : Throwable) {
@@ -133,10 +122,60 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
             }
         }
 
-    private suspend fun insert(songs : List<Song2014>) {
-        val lyricsSongs = songs.filter { s -> s.vocals.isNotEmpty() }.toHashSet()
-        for (song in songs) {
-            if (song in lyricsSongs) {
+    private fun makeWem(songKey : String, psarc : PSARCReader) {
+        val bnk = File(app.cacheDir, "$songKey.bnk")
+        val wem = File(app.cacheDir, "$songKey.wem")
+        val wav = File(app.cacheDir, "$songKey.wav")
+        val opus = File(app.filesDir, "$songKey.opus")
+
+        val bnkBA = psarc.inflateFile("audio/windows/song_${songKey.lowercase()}.bnk")
+
+        bnk.writeBytes(bnkBA)
+        val where = File(app.applicationInfo.nativeLibraryDir)
+        val bnkInfo =
+            ProcessBuilder("./libvgmstream.so", "-m", bnk.absolutePath)
+                .directory(where)
+                .start()
+        bnkInfo.waitFor()
+        val bnkInfoText =
+            bnkInfo.inputStream.readBytes().toString(Charsets.UTF_8)
+        bnkInfo.destroy()
+        bnk.delete()
+
+        val streamName = """stream name: ([0-9]+)""".toRegex().find(bnkInfoText)!!.groupValues[1]
+        val wemBA = psarc.inflateFile("audio/windows/$streamName.wem")
+
+        wem.writeBytes(wemBA)
+
+        val wem2wav = ProcessBuilder(
+            "./libvgmstream.so",
+            "-o",
+            wav.absolutePath,
+            wem.absolutePath
+        )
+            .directory(where)
+            .start()
+        wem2wav.waitFor()
+        wem2wav.destroy()
+        wem.delete()
+
+        val wav2opus = ProcessBuilder(
+            "./libopusenc.so",
+            "--comp",
+            "0",
+            wav.absolutePath,
+            opus.absolutePath
+        )
+            .directory(where)
+            .start()
+        wav2opus.waitFor()
+        wav2opus.destroy()
+        wav.delete()
+    }
+
+    private suspend fun insert(songs : Map<String, List<Song2014>>) {
+        for (song in songs.values.flatten()) {
+            if (song.vocals.isNotEmpty()) {
                 app.openFileOutput("${song.songKey}.lyrics.xml", Context.MODE_PRIVATE).use {
                     it.write(
                         XmlMapper().registerModule(KotlinModule())
@@ -153,10 +192,13 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
             }
         }
         database.withTransaction {
-            for (song in songs) {
-                if (song !in lyricsSongs) arrangementDao.insert(Arrangement(song))
+            for (song in songs.values.flatten()) {
+                if (song.vocals.isEmpty()) arrangementDao.insert(Arrangement(song))
             }
-            songDao.insert(Song(songs.first{ s -> s !in lyricsSongs && s.songLength > 0 }))
+
+            for (songKey in songs.keys) {
+                songDao.insert(Song(songs[songKey]!!.first{ song -> song.vocals.isEmpty() }))
+            }
         }
     }
 

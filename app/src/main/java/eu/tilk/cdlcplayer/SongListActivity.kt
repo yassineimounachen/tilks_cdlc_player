@@ -23,36 +23,27 @@ import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.opengl.Visibility
 import android.os.Bundle
-import android.text.Html
 import android.text.method.LinkMovementMethod
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.SearchView
 import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.Observer
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.progressindicator.CircularProgressIndicator
-import eu.tilk.cdlcplayer.data.SongWithArrangements
-import eu.tilk.cdlcplayer.psarc.PSARCReader
-import eu.tilk.cdlcplayer.song.Song2014
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
+import com.google.android.material.progressindicator.LinearProgressIndicator
 
 class SongListActivity: AppCompatActivity() {
     private val songListViewModel : SongListViewModel by viewModels()
 
     override fun onCreate(savedInstanceState : Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_song_list);
+        setContentView(R.layout.activity_song_list)
         val recyclerView = findViewById<RecyclerView>(R.id.recyclerview)
         val emptyView = findViewById<TextView>(R.id.empty_view)
         emptyView.movementMethod = LinkMovementMethod.getInstance()
@@ -66,7 +57,6 @@ class SongListActivity: AppCompatActivity() {
             },
             deleteCallback = { song ->
                 songListViewModel.deleteSong(song) {
-                    findViewById<CircularProgressIndicator>(R.id.progressBar).visibility = View.GONE
                     if (it != null) {
                         Log.d("song_fail", it.stackTraceToString())
                         AlertDialog.Builder(this).apply {
@@ -156,8 +146,21 @@ class SongListActivity: AppCompatActivity() {
 
     override fun onActivityResult(requestCode : Int, resultCode : Int, data : Intent?) {
         if ((requestCode == READ_REQUEST_CODE || requestCode == DIRECTORY_SCAN_CODE) && resultCode == Activity.RESULT_OK && data != null) {
-            findViewById<CircularProgressIndicator>(R.id.progressBar)
-                .visibility = View.VISIBLE
+            val progressLayout = findViewById<LinearLayout>(R.id.progressLayout)
+            val progressBar = findViewById<LinearProgressIndicator>(R.id.progressBar)
+            val progressText = findViewById<TextView>(R.id.progressText)
+
+            progressLayout.visibility = View.VISIBLE
+            progressBar.isIndeterminate = true
+            songListViewModel.songAddProgress.value = 0
+
+            songListViewModel.songAddProgress.observeAndCall(this) {
+                if (it >= 10) {
+                    progressBar.isIndeterminate = false
+                    progressBar.progress = it
+                    progressText.text = "$it%"
+                }
+            }
 
             val url = data.data
 
@@ -177,8 +180,7 @@ class SongListActivity: AppCompatActivity() {
 
                 for (psarc in psarcs) {
                     songListViewModel.decodeAndInsert(psarc) {
-                        findViewById<CircularProgressIndicator>(R.id.progressBar)
-                            .visibility = View.GONE
+                        progressLayout.visibility = View.GONE
                         if (it != null) {
                             Log.d("song_fail", it.stackTraceToString())
                             AlertDialog.Builder(this).apply {
