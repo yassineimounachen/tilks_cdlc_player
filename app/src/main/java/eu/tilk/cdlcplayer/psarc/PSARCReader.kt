@@ -86,7 +86,7 @@ class PSARCReader(private val inputStream : FileInputStream) {
         val data = inflateFile(name)
         val str = data.toString(Charset.forName("UTF8"))
         val mapper = JsonMapper().apply {
-            registerModule(KotlinModule())
+            registerModule(KotlinModule.Builder().build())
             configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
         }
         return mapper.readValue(str)

@@ -43,14 +43,14 @@ class SongViewModel(private val app : Application) : AndroidViewModel(app) {
 
     fun loadSong(songId : String) = viewModelScope.launch(Dispatchers.IO) {
         val loadedSong : Song2014 = XmlMapper()
-            .registerModule(KotlinModule())
+            .registerModule(KotlinModule.Builder().build())
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
             .readValue(app.openFileInput("$songId.xml"))
 
         var lyrics : List<Vocal>
         try {
             lyrics = XmlMapper()
-                .registerModule(KotlinModule())
+                .registerModule(KotlinModule.Builder().build())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
                 .readValue(app.openFileInput("${loadedSong.songKey}.lyrics.xml"))
         } catch (fnfe : FileNotFoundException) {
