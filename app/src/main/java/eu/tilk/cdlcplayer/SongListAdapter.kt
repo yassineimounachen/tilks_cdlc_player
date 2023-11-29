@@ -70,10 +70,10 @@ class SongListAdapter internal constructor(
                         R.string.are_you_sure_you_want_to_delete,
                         current.song.title
                     ))
-                .setPositiveButton(context.getString(R.string.delete_song)) { dialog, which ->
+                .setPositiveButton(context.getString(R.string.delete_song)) { _, _ ->
                     deleteCallback(current)
                 }
-                .setNegativeButton(context.getString(R.string.cancel)) { dialog, which ->
+                .setNegativeButton(context.getString(R.string.cancel)) { _, _ ->
                     // Do nothing
                 }
 

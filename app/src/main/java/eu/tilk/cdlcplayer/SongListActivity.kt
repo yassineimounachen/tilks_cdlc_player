@@ -144,6 +144,8 @@ class SongListActivity: AppCompatActivity() {
         return true
     }
 
+    @Deprecated("Deprecated in Java")
+    @OptIn(ExperimentalUnsignedTypes::class)
     override fun onActivityResult(requestCode : Int, resultCode : Int, data : Intent?) {
         if ((requestCode == READ_REQUEST_CODE || requestCode == DIRECTORY_SCAN_CODE) && resultCode == Activity.RESULT_OK && data != null) {
             val progressLayout = findViewById<LinearLayout>(R.id.progressLayout)

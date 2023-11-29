@@ -124,6 +124,7 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
             }
         }
 
+    @OptIn(ExperimentalUnsignedTypes::class)
     private fun makeOgg(songKey : String, psarc : PSARCReader) {
         val bnk = File(app.cacheDir, "$songKey.bnk")
         val wem = File(app.cacheDir, "$songKey.wem")
@@ -148,7 +149,7 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
         val streamName = """stream name: ([0-9]+)""".toRegex().find(bnkInfoText)!!.groupValues[1]
         wem.writeBytes(psarc.inflateFile("audio/windows/$streamName.wem"))
 
-        val ww2ogg = ProcessBuilder(
+        ProcessBuilder(
             "./libww2ogg.so",
             wem.absolutePath,
             "-o",
@@ -175,14 +176,14 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
             if (song.vocals.isNotEmpty()) {
                 app.openFileOutput("${song.songKey}.lyrics.xml", Context.MODE_PRIVATE).use {
                     it.write(
-                        XmlMapper().registerModule(KotlinModule())
+                        XmlMapper().registerModule(KotlinModule.Builder().build())
                             .writeValueAsBytes(song.vocals)
                     )
                 }
             } else {
                 app.openFileOutput("${song.persistentID}.xml", Context.MODE_PRIVATE).use {
                     it.write(
-                        XmlMapper().registerModule(KotlinModule())
+                        XmlMapper().registerModule(KotlinModule.Builder().build())
                             .writeValueAsBytes(song)
                     )
                 }

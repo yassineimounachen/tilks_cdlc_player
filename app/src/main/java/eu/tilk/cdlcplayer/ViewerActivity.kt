@@ -26,10 +26,12 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.*
 import androidx.activity.viewModels
+import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.net.toUri
 import androidx.lifecycle.*
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.FileDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
@@ -77,14 +79,14 @@ class ViewerActivity : AppCompatActivity() {
     private var player : ExoPlayer? = null
     private var lyricsText : TextView? = null
 
-    private fun initializePlayer() {
+    @OptIn(UnstableApi::class) private fun initializePlayer() {
         val audioOnlyRenderersFactory =
             RenderersFactory {
                     handler: Handler,
-                    videoListener: VideoRendererEventListener,
+                    _: VideoRendererEventListener,
                     audioListener: AudioRendererEventListener,
-                    textOutput: TextOutput,
-                    metadataOutput: MetadataOutput,
+                    _: TextOutput,
+                    _: MetadataOutput,
                 ->
                 arrayOf(
                     MediaCodecAudioRenderer(this, MediaCodecSelector.DEFAULT, handler, audioListener)
@@ -170,7 +172,7 @@ class ViewerActivity : AppCompatActivity() {
                                     break
                                 }
                             }
-                            lyricsText?.setText(Html.fromHtml(text))
+                            lyricsText?.setText(Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY))
                         }
                     }
 
@@ -283,7 +285,7 @@ class ViewerActivity : AppCompatActivity() {
         if (songViewModel.song.value != null)
             setContentView(constructView())
         else {
-            setContentView(R.layout.activity_viewer_loading);
+            setContentView(R.layout.activity_viewer_loading)
             songViewModel.song.observe(this, observer)
             songViewModel.loadSong(songId!!)
         }
