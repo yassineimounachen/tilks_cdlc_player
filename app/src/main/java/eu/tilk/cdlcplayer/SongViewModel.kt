@@ -23,8 +23,8 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.dataformat.xml.XmlMapper
-import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.fasterxml.jackson.module.kotlin.readValue
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import eu.tilk.cdlcplayer.song.Song2014
 import eu.tilk.cdlcplayer.song.Vocal
 import eu.tilk.cdlcplayer.viewer.RepeaterInfo
@@ -43,14 +43,14 @@ class SongViewModel(private val app : Application) : AndroidViewModel(app) {
 
     fun loadSong(songId : String) = viewModelScope.launch(Dispatchers.IO) {
         val loadedSong : Song2014 = XmlMapper()
-            .registerModule(KotlinModule.Builder().build())
+            .registerKotlinModule()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
             .readValue(app.openFileInput("$songId.xml"))
 
         var lyrics : List<Vocal>
         try {
             lyrics = XmlMapper()
-                .registerModule(KotlinModule.Builder().build())
+                .registerKotlinModule()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
                 .readValue(app.openFileInput("${loadedSong.songKey}.lyrics.xml"))
         } catch (fnfe : FileNotFoundException) {

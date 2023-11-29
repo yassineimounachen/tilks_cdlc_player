@@ -27,7 +27,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
 import com.fasterxml.jackson.dataformat.xml.XmlMapper
-import com.fasterxml.jackson.module.kotlin.KotlinModule
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import eu.tilk.cdlcplayer.data.*
 import eu.tilk.cdlcplayer.psarc.PSARCReader
 import eu.tilk.cdlcplayer.song.Song2014
@@ -176,14 +176,15 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
             if (song.vocals.isNotEmpty()) {
                 app.openFileOutput("${song.songKey}.lyrics.xml", Context.MODE_PRIVATE).use {
                     it.write(
-                        XmlMapper().registerModule(KotlinModule.Builder().build())
+                        XmlMapper().registerKotlinModule()
+
                             .writeValueAsBytes(song.vocals)
                     )
                 }
             } else {
                 app.openFileOutput("${song.persistentID}.xml", Context.MODE_PRIVATE).use {
                     it.write(
-                        XmlMapper().registerModule(KotlinModule.Builder().build())
+                        XmlMapper().registerKotlinModule()
                             .writeValueAsBytes(song)
                     )
                 }
