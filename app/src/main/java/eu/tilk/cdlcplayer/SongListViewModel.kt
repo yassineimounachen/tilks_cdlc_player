@@ -69,7 +69,7 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                 arrangementDao.deleteArrangement(arrangement.persistentID)
             }
             app.deleteFile("${song.song.key}.lyrics.xml")
-            app.deleteFile("${song.song.key}.ogg")
+            app.deleteFile("${song.song.key}.opus")
             songDao.deleteSong(song.song.key)
         }
     }
@@ -111,7 +111,7 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
 
                     var doneCount = 0
                     for (songKey in groupedSongs.keys) {
-                        makeOgg(songKey, psarc)
+                        makeOpus(songKey, psarc)
                         doneCount += 1
                         songAddProgress.postValue(10 + ((doneCount*90.0)/groupedSongs.keys.size).roundToInt())
                     }
@@ -123,16 +123,12 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.Main) { handler(throwable) }
             }
         }
-
     @OptIn(ExperimentalUnsignedTypes::class)
-    private fun makeOgg(songKey : String, psarc : PSARCReader) {
+    private fun makeOpus(songKey : String, psarc : PSARCReader) {
         val bnk = File(app.cacheDir, "$songKey.bnk")
         val wem = File(app.cacheDir, "$songKey.wem")
-        val ogg = File(app.filesDir, "$songKey.ogg")
-        val pcb = File(app.filesDir, "pcb.bin")
-        if (!pcb.exists()) {
-            pcb.writeBytes(app.assets.open("pcb.bin").readBytes())
-        }
+        val wav = File(app.cacheDir, "$songKey.wav")
+        val opus = File(app.filesDir, "$songKey.opus")
         val where = File(app.applicationInfo.nativeLibraryDir)
 
         bnk.writeBytes(psarc.inflateFile("audio/windows/song_${songKey.lowercase()}.bnk"))
@@ -149,26 +145,28 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
         val streamName = """stream name: ([0-9]+)""".toRegex().find(bnkInfoText)!!.groupValues[1]
         wem.writeBytes(psarc.inflateFile("audio/windows/$streamName.wem"))
 
-        ProcessBuilder(
-            "./libww2ogg.so",
-            wem.absolutePath,
+        val wem2wav = ProcessBuilder(
+            "./libvgmstream.so",
             "-o",
-            ogg.absolutePath,
-            "--pcb",
-            pcb.absolutePath
+            wav.absolutePath,
+            wem.absolutePath
         )
             .directory(where)
             .start()
-            .waitFor()
+        wem2wav.waitFor()
         wem.delete()
 
-        ProcessBuilder(
-            "./librevorb.so",
-            ogg.absolutePath,
+        val wav2opus = ProcessBuilder(
+            "./libopusenc.so",
+            "--comp",
+            "0",
+            wav.absolutePath,
+            opus.absolutePath
         )
             .directory(where)
             .start()
-            .waitFor()
+        wav2opus.waitFor()
+        wav.delete()
     }
 
     private suspend fun insert(songs : Map<String, List<Song2014>>) {
