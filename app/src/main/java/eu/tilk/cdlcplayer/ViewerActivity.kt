@@ -26,10 +26,12 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.*
 import androidx.activity.viewModels
+import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.net.toUri
 import androidx.lifecycle.*
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.FileDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
@@ -45,6 +47,7 @@ import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.ogg.OggExtractor
 import com.google.android.material.button.MaterialButton
 import eu.tilk.cdlcplayer.song.Song2014
+import eu.tilk.cdlcplayer.song.Vocal
 import eu.tilk.cdlcplayer.viewer.RepeaterInfo
 import eu.tilk.cdlcplayer.viewer.SongGLSurfaceView
 import kotlinx.coroutines.delay
@@ -76,14 +79,14 @@ class ViewerActivity : AppCompatActivity() {
     private var player : ExoPlayer? = null
     private var lyricsText : TextView? = null
 
-    private fun initializePlayer() {
+    @OptIn(UnstableApi::class) private fun initializePlayer() {
         val audioOnlyRenderersFactory =
             RenderersFactory {
                     handler: Handler,
-                    videoListener: VideoRendererEventListener,
+                    _: VideoRendererEventListener,
                     audioListener: AudioRendererEventListener,
-                    textOutput: TextOutput,
-                    metadataOutput: MetadataOutput,
+                    _: TextOutput,
+                    _: MetadataOutput,
                 ->
                 arrayOf(
                     MediaCodecAudioRenderer(this, MediaCodecSelector.DEFAULT, handler, audioListener)
@@ -116,33 +119,64 @@ class ViewerActivity : AppCompatActivity() {
                         player!!.seekTo(currentTime)
                     }
 
-                    if (songViewModel.currentWord.value!! < 0 || currentTime / 1000F !in songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].time - 0.07 .. songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].time + songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].length + 0.07) {
-                        songViewModel.currentWord.value =
-                            songViewModel.song.value!!.vocals.indexOfFirst { v -> currentTime / 1000F in v.time - 0.07..v.time + v.length + 0.07 }
-                    }
-
-                    if (songViewModel.currentWord.value!! >= 0) {
-                        if (songViewModel.currentWord.value!! == 0 || songViewModel.song.value!!.vocals[songViewModel.currentWord.value!! - 1].lyric.endsWith("+")) {
-                            songViewModel.sentenceStart.value = songViewModel.currentWord.value!!
-                        }
-
-                        var i = songViewModel.sentenceStart.value!!
-                        var text = "<b>"
-                        while (i < songViewModel.song.value!!.vocals.size) {
-                            val toAdd = songViewModel.song.value!!.vocals[i].lyric
-                            text += toAdd.removeSuffix("+") + " "
-                            if (i == songViewModel.currentWord.value) {
-                                text += "</b>"
-                            }
-                            i++
-                            if (toAdd.endsWith("+")) {
-                                break
+                    if (songViewModel.song.value!!.vocals.isNotEmpty()) {
+                        if (songViewModel.currentWord.value!! < 0 || currentTime / 1000F !in songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].time - 0.05 .. songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].time + songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].length + 0.05) {
+                            songViewModel.currentWord.value =
+                                songViewModel.song.value!!.vocals.binarySearch(Vocal(currentTime/1000F, 0, 0F, ""), Vocal::compareTo)
+                            if (songViewModel.currentWord.value!! < 0) {
+                                songViewModel.currentWord.value = -(songViewModel.currentWord.value!! + 2)
                             }
                         }
-                        lyricsText?.setText(Html.fromHtml(text))
+
+                        if (songViewModel.currentWord.value!! in 0 until songViewModel.song.value!!.vocals.size) {
+                            if (songViewModel.currentWord.value!! == 0 || songViewModel.song.value!!.vocals[songViewModel.currentWord.value!! - 1].lyric.endsWith(
+                                    "+"
+                                )
+                            ) {
+                                songViewModel.sentenceStart.value =
+                                    songViewModel.currentWord.value!!
+                            }
+
+                            var i = songViewModel.sentenceStart.value!!
+                            var text = ""
+
+                            while (i < songViewModel.song.value!!.vocals.size) {
+                                val toAdd = songViewModel.song.value!!.vocals[i].lyric
+                                if (i < songViewModel.currentWord.value!!) {
+                                    text += "<font color='#999999'>"
+                                }
+
+                                if (i == songViewModel.currentWord.value) {
+                                    text += "<b><font color='#fd686c'>"
+                                }
+
+                                text += toAdd.removeSuffix("+").removeSuffix("-")
+
+                                if (i < songViewModel.currentWord.value!!) {
+                                    text += "</font>"
+                                }
+
+                                if (i == songViewModel.currentWord.value) {
+                                    text += "</font></b>"
+                                }
+
+                                if (!toAdd.endsWith("-")) {
+                                    text += " "
+                                }
+
+                                i++
+                                if (toAdd.endsWith("+")) {
+                                    if (i - 1 == songViewModel.currentWord.value) {
+                                        songViewModel.sentenceStart.value = i
+                                    }
+                                    break
+                                }
+                            }
+                            lyricsText?.setText(Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY))
+                        }
                     }
 
-                    delay(200)
+                    delay(250)
                 }
             }
         }
@@ -175,6 +209,7 @@ class ViewerActivity : AppCompatActivity() {
             repStartButton.visibility = v
             repEndButton.visibility = v
             speedText.visibility = v
+            lyricsText!!.visibility = if (v == View.VISIBLE) View.INVISIBLE else View.VISIBLE
         }
         speedBar.max = 99
         pauseButton.setOnClickListener {
@@ -250,7 +285,7 @@ class ViewerActivity : AppCompatActivity() {
         if (songViewModel.song.value != null)
             setContentView(constructView())
         else {
-            setContentView(R.layout.activity_viewer_loading);
+            setContentView(R.layout.activity_viewer_loading)
             songViewModel.song.observe(this, observer)
             songViewModel.loadSong(songId!!)
         }

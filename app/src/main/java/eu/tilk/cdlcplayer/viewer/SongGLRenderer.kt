@@ -37,7 +37,6 @@ import androidx.dynamicanimation.animation.FloatValueHolder
 import androidx.preference.PreferenceManager
 import eu.tilk.cdlcplayer.SongViewModel
 import eu.tilk.cdlcplayer.shapes.utils.NoteCalculator
-import eu.tilk.cdlcplayer.song.Song2014
 import kotlin.math.roundToLong
 
 class SongGLRenderer(private val context : Context, private val viewModel : SongViewModel) :
@@ -105,7 +104,7 @@ class SongGLRenderer(private val context : Context, private val viewModel : Song
         }
 
         override fun onFling(
-            e1 : MotionEvent,
+            e1 : MotionEvent?,
             e2 : MotionEvent,
             velocityX : Float,
             velocityY : Float
@@ -116,7 +115,7 @@ class SongGLRenderer(private val context : Context, private val viewModel : Song
         }
 
         override fun onScroll(
-            e1 : MotionEvent,
+            e1 : MotionEvent?,
             e2 : MotionEvent,
             distanceX : Float,
             distanceY : Float
@@ -313,7 +312,7 @@ class SongGLRenderer(private val context : Context, private val viewModel : Song
             ))
         draw(Frets())
 
-        if (scroller.currentTime > data.songLength) (context as Activity)!!.finish()
+        if (scroller.currentTime > data.songLength) (context as Activity).finish()
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {

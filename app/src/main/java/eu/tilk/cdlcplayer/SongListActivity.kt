@@ -22,44 +22,53 @@ import android.app.AlertDialog
 import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
-import android.opengl.Visibility
+import android.net.Uri
 import android.os.Bundle
-import android.text.Html
 import android.text.method.LinkMovementMethod
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.SearchView
 import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.Observer
+import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.progressindicator.CircularProgressIndicator
-import eu.tilk.cdlcplayer.data.SongWithArrangements
-import eu.tilk.cdlcplayer.psarc.PSARCReader
-import eu.tilk.cdlcplayer.song.Song2014
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
+import com.google.android.material.progressindicator.LinearProgressIndicator
 
 class SongListActivity: AppCompatActivity() {
     private val songListViewModel : SongListViewModel by viewModels()
 
     override fun onCreate(savedInstanceState : Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_song_list);
+        setContentView(R.layout.activity_song_list)
         val recyclerView = findViewById<RecyclerView>(R.id.recyclerview)
         val emptyView = findViewById<TextView>(R.id.empty_view)
         emptyView.movementMethod = LinkMovementMethod.getInstance()
-        val adapter = SongListAdapter(this) { _, arrangement ->
-            val intent = Intent(this, ViewerActivity::class.java).apply {
-                putExtra(ViewerActivity.SONG_ID, arrangement.persistentID)
+
+        val adapter = SongListAdapter(this,
+            playCallback = { _, arrangement ->
+                val intent = Intent(this, ViewerActivity::class.java).apply {
+                    putExtra(ViewerActivity.SONG_ID, arrangement.persistentID)
+                }
+                startActivity(intent)
+            },
+            deleteCallback = { song ->
+                songListViewModel.deleteSong(song) {
+                    if (it != null) {
+                        Log.d("song_fail", it.stackTraceToString())
+                        AlertDialog.Builder(this).apply {
+                            setTitle(getString(R.string.deleting_song_failed))
+                            setMessage(getString(R.string.could_not_delete_song))
+                            create().show()
+                        }
+                    }
+                }
             }
-            startActivity(intent)
-        }
+        )
+
         emptyView.text = getString(R.string.loading_song_list)
         fun emptyViewVisible(b : Boolean) {
             if (b) {
@@ -109,6 +118,10 @@ class SongListActivity: AppCompatActivity() {
                 intent.addCategory(Intent.CATEGORY_OPENABLE)
                 startActivityForResult(intent, READ_REQUEST_CODE)
             }
+            R.id.scan_dir -> {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                startActivityForResult(intent, DIRECTORY_SCAN_CODE)
+            }
             R.id.settings -> {
                 val intent = Intent(this, SettingsActivity::class.java)
                 startActivity(intent)
@@ -131,21 +144,54 @@ class SongListActivity: AppCompatActivity() {
         return true
     }
 
+    @Deprecated("Deprecated in Java")
+    @OptIn(ExperimentalUnsignedTypes::class)
     override fun onActivityResult(requestCode : Int, resultCode : Int, data : Intent?) {
-        if (requestCode == READ_REQUEST_CODE && resultCode == Activity.RESULT_OK && data != null) {
-            findViewById<CircularProgressIndicator>(R.id.progressBar)
-                .visibility = View.VISIBLE
+        if ((requestCode == READ_REQUEST_CODE || requestCode == DIRECTORY_SCAN_CODE) && resultCode == Activity.RESULT_OK && data != null) {
+            val progressLayout = findViewById<LinearLayout>(R.id.progressLayout)
+            val progressBar = findViewById<LinearProgressIndicator>(R.id.progressBar)
+            val progressText = findViewById<TextView>(R.id.progressText)
+
+            progressLayout.visibility = View.VISIBLE
+            progressBar.isIndeterminate = true
+            progressBar.progress = 0
+            progressText.text = "0%"
+            songListViewModel.songAddProgress.value = 0
+
+            songListViewModel.songAddProgress.observeAndCall(this) {
+                if (it >= 10) {
+                    progressBar.isIndeterminate = false
+                    progressBar.progress = it
+                    progressText.text = "$it%"
+                }
+            }
+
             val url = data.data
+
             if (url != null) {
-                songListViewModel.decodeAndInsert(url) {
-                    findViewById<CircularProgressIndicator>(R.id.progressBar)
-                        .visibility = View.GONE
-                    if (it != null) {
-                        Log.d("song_fail", it.stackTraceToString())
-                        AlertDialog.Builder(this).apply {
-                            setTitle(R.string.error_loading_song_title)
-                            setMessage(R.string.error_loading_song_message)
-                            create().show()
+                val psarcs = ArrayList<Uri>()
+                if (requestCode == DIRECTORY_SCAN_CODE) {
+                    val documentFile = DocumentFile.fromTreeUri(this, url)
+                    for (maybePsarc in documentFile!!.listFiles()) {
+                        if (maybePsarc.isFile && maybePsarc.name!!.endsWith(".psarc")) {
+                            psarcs.add(maybePsarc.uri)
+                        }
+                    }
+                    contentResolver.takePersistableUriPermission(url, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } else {
+                    psarcs.add(url)
+                }
+
+                for (psarc in psarcs) {
+                    songListViewModel.decodeAndInsert(psarc) {
+                        progressLayout.visibility = View.GONE
+                        if (it != null) {
+                            Log.d("song_fail", it.stackTraceToString())
+                            AlertDialog.Builder(this).apply {
+                                setTitle(R.string.error_loading_song_title)
+                                setMessage(R.string.error_loading_song_message)
+                                create().show()
+                            }
                         }
                     }
                 }
@@ -172,5 +218,6 @@ class SongListActivity: AppCompatActivity() {
 
     companion object {
         private const val READ_REQUEST_CODE = 42
+        private const val DIRECTORY_SCAN_CODE = 43
     }
 }
