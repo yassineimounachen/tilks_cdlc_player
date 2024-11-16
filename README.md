@@ -12,6 +12,15 @@ Have you ever wanted to use your sight-reading skills on the go, without a PC, M
 ## How to use
 
 You have to download songs from [CustomsForge](https://customsforge.com/) to your mobile device, and add them to the app.
+
+```
+<illegal>
+
+If someone were to try .PSARCs that one might qualify as less custom, they would work too. winks and nudges.
+
+</illegal>
+```
+
 You will then be able to play them.
 
 ## Acknowledgements
