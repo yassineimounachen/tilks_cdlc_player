@@ -118,7 +118,7 @@ class ViewerActivity : AppCompatActivity() {
                     if (actualDelta !in (targetDelta - 70) .. (targetDelta + 70)) {
                         player!!.seekTo(currentTime)
                     }
-
+										// ⚠️
                     if (songViewModel.song.value!!.vocals.isNotEmpty()) {
                         if (songViewModel.currentWord.value!! < 0 || currentTime / 1000F !in songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].time - 0.05 .. songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].time + songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].length + 0.05) {
                             songViewModel.currentWord.value =
