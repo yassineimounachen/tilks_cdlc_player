@@ -23,11 +23,11 @@ plugins {
 }
 
 android {
-    compileSdk 34
+    compileSdkVersion 35
     defaultConfig {
         applicationId "eu.tilk.cdlcplayer"
         minSdkVersion 24
-        targetSdkVersion 34
+        targetSdkVersion 35
         versionCode 6
         versionName "0.0.6"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -37,10 +37,10 @@ android {
     }
     buildTypes {
         release {
-            ndk {
-                //noinspection ChromeOsAbiSupport
-                abiFilters "arm64-v8a"
-            }
+//            ndk {
+//                //noinspection ChromeOsAbiSupport
+//                abiFilters "arm64-v8a", "armeabi-v7a"
+//            }
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
@@ -53,10 +53,29 @@ android {
             excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE', 'META-INF/LICENSE.md', 'META-INF/LICENSE.txt', 'META-INF/license.txt', 'META-INF/NOTICE', 'META-INF/NOTICE.md', 'META-INF/NOTICE.txt', 'META-INF/notice.txt', 'META-INF/ASL2.0', 'META-INF/*.kotlin_module']
         }
     }
+
     namespace 'eu.tilk.cdlcplayer'
 
     kotlin {
         jvmToolchain(17)
+    }
+
+    splits {
+
+        // Configures multiple APKs based on ABI.
+        abi {
+            // Enables building multiple APKs per ABI.
+            enable true
+
+            // Resets the list of ABIs for Gradle to create APKs for to none.
+            reset()
+
+            // Specifies a list of ABIs for Gradle to create APKs for.
+            include "arm64-v8a", "armeabi-v7a"
+
+            // Specifies that you don't want to also generate a universal APK that includes all ABIs.
+            universalApk false
+        }
     }
 }
 
@@ -73,8 +92,7 @@ dependencies {
     implementation "com.fasterxml.jackson.module:jackson-module-kotlin:$rootProject.jacksonVersion"
     implementation 'javax.xml.stream:stax-api:1.0-2'
     implementation 'net.sf.loggersoft.kotlin:binary-streams:0.37'
-    implementation "androidx.media3:media3-exoplayer:1.2.0"
-
+    implementation "androidx.media3:media3-exoplayer:1.8.0"
 
     // Material design
     implementation "com.google.android.material:material:$rootProject.materialVersion"

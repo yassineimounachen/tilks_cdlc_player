@@ -30,11 +30,15 @@ import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.net.toUri
 import androidx.lifecycle.*
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.FileDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.drm.DrmSessionManager
@@ -53,9 +57,9 @@ import eu.tilk.cdlcplayer.viewer.SongGLSurfaceView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
-import kotlin.math.roundToLong
 
 class ViewerActivity : AppCompatActivity() {
     private val songViewModel : SongViewModel by viewModels()
@@ -96,29 +100,51 @@ class ViewerActivity : AppCompatActivity() {
         val customMediaSourceFactory = ProgressiveMediaSource.Factory(FileDataSource.Factory(),  ExtractorsFactory { arrayOf(OggExtractor()) })
             .setDrmSessionManagerProvider { DrmSessionManager.DRM_UNSUPPORTED }
 
-        player = ExoPlayer.Builder(this, audioOnlyRenderersFactory, customMediaSourceFactory).build()
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 50,
+                /* maxBufferMs = */ 250,
+                /* bufferForPlaybackMs = */ 20,
+                /* bufferForPlaybackAfterRebufferMs = */ 20
+            )
+            .build()
+
+        val audioAttributes = AudioAttributes.Builder()
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .setUsage(C.USAGE_MEDIA)
+            .build()
+
+        player = ExoPlayer.Builder(this, audioOnlyRenderersFactory, customMediaSourceFactory).setLoadControl(loadControl).setAudioAttributes(audioAttributes, false).build()
+        player!!.skipSilenceEnabled = false
+        player!!.preloadConfiguration =
+            ExoPlayer.PreloadConfiguration(5_000_000L)
+        player!!.setSeekParameters(SeekParameters.EXACT)
     }
 
     private fun playMusic() {
-        val opus = File(this.filesDir, "${songViewModel.song.value!!.songKey}.opus")
-        player!!.setMediaItem(MediaItem.fromUri(opus.toUri()))
+        val ogg = File(this.filesDir, "${songViewModel.song.value!!.songKey}.ogg")
+
+        player!!.setMediaItem(MediaItem.fromUri(ogg.toUri()))
         player!!.prepare()
         player!!.seekTo(if (this::glView.isInitialized) glView.currentTime() else 0)
         player!!.setPlaybackSpeed(songViewModel.speed.value!!)
+
         if (!songViewModel.paused.value!!) player!!.play()
     }
 
     private fun observeViewAndSyncMusic() {
         this.lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                var previousDelta = 0L
                 while (true) {
                     val currentTime = glView.currentTime()
-                    val targetDelta = (250.0f*songViewModel.speed.value!! - 90.0f).roundToLong() // see https://www.wolframalpha.com/input?i=linear+regression+%7B%7B100%2C+180%7D%2C%7B90%2C145%7D%2C%7B80%2C+90%7D%2C%7B60%2C+50%7D%2C%7B40%2C+5%7D%2C%7B20%2C+-30%7D%2C%7B10%2C+-60%7D%7D
-                    val actualDelta = currentTime - player!!.currentPosition
-                    if (actualDelta !in (targetDelta - 70) .. (targetDelta + 70)) {
+                    val currentDelta = player!!.currentPosition - currentTime
+
+                    if (abs(previousDelta - currentDelta) > 25) {
                         player!!.seekTo(currentTime)
+                        previousDelta = currentDelta
                     }
-										// ⚠️
+
                     if (songViewModel.song.value!!.vocals.isNotEmpty()) {
                         if (songViewModel.currentWord.value!! < 0 || currentTime / 1000F !in songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].time - 0.05 .. songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].time + songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].length + 0.05) {
                             songViewModel.currentWord.value =
@@ -129,10 +155,8 @@ class ViewerActivity : AppCompatActivity() {
                         }
 
                         if (songViewModel.currentWord.value!! in 0 until songViewModel.song.value!!.vocals.size) {
-                            if (songViewModel.currentWord.value!! == 0 || songViewModel.song.value!!.vocals[songViewModel.currentWord.value!! - 1].lyric.endsWith(
-                                    "+"
-                                )
-                            ) {
+                            if (songViewModel.currentWord.value!! == 0 || songViewModel.song.value!!.vocals[songViewModel.currentWord.value!! - 1].lyric.endsWith("+") || (songViewModel.song.value!!.vocals[songViewModel.currentWord.value!! - 1].time - songViewModel.song.value!!.vocals[songViewModel.sentenceStart.value!!].time >= 3 && !songViewModel.song.value!!.vocals[songViewModel.currentWord.value!! - 1].lyric.endsWith("-")))
+                            {
                                 songViewModel.sentenceStart.value =
                                     songViewModel.currentWord.value!!
                             }
@@ -165,18 +189,19 @@ class ViewerActivity : AppCompatActivity() {
                                 }
 
                                 i++
-                                if (toAdd.endsWith("+")) {
-                                    if (i - 1 == songViewModel.currentWord.value) {
+                                if (songViewModel.song.value!!.vocals[i - 1].lyric.endsWith("+") || (songViewModel.song.value!!.vocals[i - 1].time - songViewModel.song.value!!.vocals[songViewModel.sentenceStart.value!!].time >= 3 && !songViewModel.song.value!!.vocals[i - 1].lyric.endsWith("-")))
+                                {
+                                    if (i - 1 == songViewModel.currentWord.value && i < songViewModel.song.value!!.vocals.size) {
                                         songViewModel.sentenceStart.value = i
                                     }
                                     break
                                 }
                             }
-                            lyricsText?.setText(Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY))
+                            lyricsText?.text = Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY)
                         }
                     }
 
-                    delay(250)
+                    delay(300)
                 }
             }
         }
@@ -272,7 +297,7 @@ class ViewerActivity : AppCompatActivity() {
             player?.setPlaybackSpeed(it)
         }
         songViewModel.repeater.observeAndCall(this) {
-            repEndButton.isEnabled = it != null
+            repEndButton.isEnabled = true
         }
 
         return frameLayout
@@ -280,6 +305,7 @@ class ViewerActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState : Bundle?) {
         super.onCreate(savedInstanceState)
+        initializePlayer()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val songId = intent.getStringExtra(SONG_ID)
         if (songViewModel.song.value != null)
@@ -293,17 +319,20 @@ class ViewerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        player?.release()
     }
 
     override fun onStart() {
         super.onStart()
-        initializePlayer()
         if (songViewModel.song.value != null) {
             playMusic()
         } else {
             songViewModel.song.observe(this, secondObserver)
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        player?.release()
     }
 
     companion object {

@@ -32,11 +32,16 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.SearchView
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.launch
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.progressindicator.LinearProgressIndicator
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 class SongListActivity: AppCompatActivity() {
     private val songListViewModel : SongListViewModel by viewModels()
@@ -144,6 +149,13 @@ class SongListActivity: AppCompatActivity() {
         return true
     }
 
+    private fun String.truncate(maxLength: Int = 30): String {
+        if (this.length <= maxLength) return this
+        val startLength = (maxLength - 3) / 2
+        val endLength = maxLength - 8 - startLength
+        return "${this.take(startLength)}...${this.takeLast(endLength)}"
+    }
+
     @Deprecated("Deprecated in Java")
     @OptIn(ExperimentalUnsignedTypes::class)
     override fun onActivityResult(requestCode : Int, resultCode : Int, data : Intent?) {
@@ -152,48 +164,62 @@ class SongListActivity: AppCompatActivity() {
             val progressBar = findViewById<LinearProgressIndicator>(R.id.progressBar)
             val progressText = findViewById<TextView>(R.id.progressText)
 
-            progressLayout.visibility = View.VISIBLE
-            progressBar.isIndeterminate = true
-            progressBar.progress = 0
-            progressText.text = "0%"
-            songListViewModel.songAddProgress.value = 0
+
 
             songListViewModel.songAddProgress.observeAndCall(this) {
-                if (it >= 10) {
-                    progressBar.isIndeterminate = false
-                    progressBar.progress = it
-                    progressText.text = "$it%"
-                }
+                progressBar.isIndeterminate = false
+                progressBar.progress = it.roundToInt()
             }
+
+            songListViewModel.songAddProgress.value = 0.0
 
             val url = data.data
 
             if (url != null) {
                 val psarcs = ArrayList<Uri>()
                 if (requestCode == DIRECTORY_SCAN_CODE) {
-                    val documentFile = DocumentFile.fromTreeUri(this, url)
-                    for (maybePsarc in documentFile!!.listFiles()) {
-                        if (maybePsarc.isFile && maybePsarc.name!!.endsWith(".psarc")) {
-                            psarcs.add(maybePsarc.uri)
+                    val rootDir = DocumentFile.fromTreeUri(this, url)
+                    fun findPsarcFiles(directory: DocumentFile) {
+                        for (file in directory.listFiles()) {
+                            if (file.isDirectory) {
+                                // If it's a directory, scan inside it
+                                findPsarcFiles(file)
+                            } else if (file.isFile && file.name?.endsWith(".psarc") == true) {
+                                // If it's a .psarc file, add its URI to the list
+                                psarcs.add(file.uri)
+                            }
                         }
                     }
-                    contentResolver.takePersistableUriPermission(url, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+                    if (rootDir != null) {
+                        findPsarcFiles(rootDir)
+                    }
                 } else {
                     psarcs.add(url)
                 }
 
-                for (psarc in psarcs) {
-                    songListViewModel.decodeAndInsert(psarc) {
-                        progressLayout.visibility = View.GONE
-                        if (it != null) {
-                            Log.d("song_fail", it.stackTraceToString())
-                            AlertDialog.Builder(this).apply {
+                lifecycleScope.launch {
+                    progressLayout.visibility = View.VISIBLE
+                    progressText.text = "Preparing import..."
+                    var i = 1
+                    for (psarc in psarcs) {
+                        progressBar.progress = 0
+                        progressBar.isIndeterminate = true
+                        progressText.text = "Importing ${psarc.lastPathSegment?.truncate()}... ($i/${psarcs.size})"
+
+                        val error = songListViewModel.decodeAndInsert(psarc)
+                        if (error != null) {
+                            Log.d("song_fail", error.stackTraceToString())
+                            AlertDialog.Builder(this@SongListActivity).apply {
                                 setTitle(R.string.error_loading_song_title)
                                 setMessage(R.string.error_loading_song_message)
                                 create().show()
                             }
                         }
+                        i += 1
                     }
+                    progressLayout.visibility = View.GONE
+                    Toast.makeText(this@SongListActivity, "Success", Toast.LENGTH_SHORT).show()
                 }
             }
         }

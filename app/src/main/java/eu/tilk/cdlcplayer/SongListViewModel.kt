@@ -36,13 +36,12 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.UUID
-import kotlin.math.roundToInt
 
 class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
     private val database = SongRoomDatabase.getDatabase(app)
     private val songDao : SongDao = SongRoomDatabase.getDatabase(app).songDao()
     private val arrangementDao : ArrangementDao = SongRoomDatabase.getDatabase(app).arrangementDao()
-    val songAddProgress = MutableLiveData(0)
+    val songAddProgress = MutableLiveData(0.0)
 
     private fun exceptionHandler(handler : (Throwable) -> Unit) =
         CoroutineExceptionHandler{_ , throwable ->
@@ -69,14 +68,14 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                 arrangementDao.deleteArrangement(arrangement.persistentID)
             }
             app.deleteFile("${song.song.key}.lyrics.xml")
-            app.deleteFile("${song.song.key}.opus")
+            app.deleteFile("${song.song.key}.ogg")
             songDao.deleteSong(song.song.key)
         }
     }
 
     @ExperimentalUnsignedTypes
-    fun decodeAndInsert(uri : Uri, handler : (Throwable?) -> Unit) =
-        viewModelScope.launch(Dispatchers.IO) {
+    suspend fun decodeAndInsert(uri: Uri): Throwable? {
+        return withContext(Dispatchers.IO) {
             try {
                 val outputFile = File(app.cacheDir, UUID.randomUUID().toString() + "output.CoroutineExceptionHandler {psarc")
                 app.contentResolver.openInputStream(uri).use { input ->
@@ -105,30 +104,36 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                         }
                     }
 
-                    songAddProgress.postValue(10)
+                    songAddProgress.postValue(1.0)
 
                     val groupedSongs = songs.groupBy { song2014 -> song2014.songKey }
 
                     var doneCount = 0
                     for (songKey in groupedSongs.keys) {
-                        makeOpus(songKey, psarc)
+                        makeOgg(songKey, psarc)
                         doneCount += 1
-                        songAddProgress.postValue(10 + ((doneCount*90.0)/groupedSongs.keys.size).roundToInt())
+                        songAddProgress.postValue(doneCount * 100.0 / groupedSongs.keys.size)
                     }
 
                     insert(groupedSongs)
                 }
-                withContext(Dispatchers.Main) { handler(null) }
+                null
             } catch (throwable : Throwable) {
-                withContext(Dispatchers.Main) { handler(throwable) }
+                throwable
             }
         }
+    }
+
     @OptIn(ExperimentalUnsignedTypes::class)
-    private fun makeOpus(songKey : String, psarc : PSARCReader) {
+    private fun makeOgg(songKey : String, psarc : PSARCReader) {
         val bnk = File(app.cacheDir, "$songKey.bnk")
         val wem = File(app.cacheDir, "$songKey.wem")
-        val wav = File(app.cacheDir, "$songKey.wav")
-        val opus = File(app.filesDir, "$songKey.opus")
+        val ogg = File(app.filesDir, "$songKey.ogg")
+        val tmpOgg = File(app.filesDir, "$songKey.ogg.tmp")
+        val pcb = File(app.filesDir, "pcb.bin")
+        if (!pcb.exists()) {
+            pcb.writeBytes(app.assets.open("pcb.bin").readBytes())
+        }
         val where = File(app.applicationInfo.nativeLibraryDir)
 
         bnk.writeBytes(psarc.inflateFile("audio/windows/song_${songKey.lowercase()}.bnk"))
@@ -145,28 +150,40 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
         val streamName = """stream name: ([0-9]+)""".toRegex().find(bnkInfoText)!!.groupValues[1]
         wem.writeBytes(psarc.inflateFile("audio/windows/$streamName.wem"))
 
-        val wem2wav = ProcessBuilder(
-            "./libvgmstream.so",
+        val wem2ogg = ProcessBuilder(
+            "./libww2ogg.so",
+            wem.absolutePath,
+            "--pcb",
+            pcb.absolutePath,
             "-o",
-            wav.absolutePath,
-            wem.absolutePath
+            ogg.absolutePath,
         )
             .directory(where)
+            .redirectErrorStream(true)
             .start()
-        wem2wav.waitFor()
+        wem2ogg.waitFor()
+
+        println("-- ww2ogg output --")
+        println(wem2ogg.inputStream.readBytes().toString(Charsets.UTF_8))
+
+
         wem.delete()
 
-        val wav2opus = ProcessBuilder(
-            "./libopusenc.so",
-            "--comp",
-            "0",
-            wav.absolutePath,
-            opus.absolutePath
+        val revorb = ProcessBuilder(
+            "./librevorb.so",
+            ogg.absolutePath,
         )
             .directory(where)
+            .redirectErrorStream(true)
             .start()
-        wav2opus.waitFor()
-        wav.delete()
+
+        revorb.waitFor()
+        println("-- revorb output --")
+        println(revorb.inputStream.readBytes().toString(Charsets.UTF_8))
+
+        if (tmpOgg.exists()) {
+            tmpOgg.renameTo(ogg)
+        }
     }
 
     private suspend fun insert(songs : Map<String, List<Song2014>>) {
@@ -175,7 +192,6 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                 app.openFileOutput("${song.songKey}.lyrics.xml", Context.MODE_PRIVATE).use {
                     it.write(
                         XmlMapper().registerKotlinModule()
-
                             .writeValueAsBytes(song.vocals)
                     )
                 }
