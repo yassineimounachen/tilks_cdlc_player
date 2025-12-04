@@ -140,10 +140,20 @@ class ViewerActivity : AppCompatActivity() {
                     val currentTime = glView.currentTime()
                     val currentDelta = player!!.currentPosition - currentTime
 
-                    if (abs(previousDelta - currentDelta) > 25) {
+                    if (abs(previousDelta - currentDelta) > 40) {
                         player!!.seekTo(currentTime)
                         previousDelta = currentDelta
                     }
+
+                    delay(1000)
+                }
+            }
+        }
+
+        this.lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    val currentTime = glView.currentTime()
 
                     if (songViewModel.song.value!!.vocals.isNotEmpty()) {
                         if (songViewModel.currentWord.value!! < 0 || currentTime / 1000F !in songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].time - 0.05 .. songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].time + songViewModel.song.value!!.vocals[songViewModel.currentWord.value!!].length + 0.05) {
@@ -200,8 +210,7 @@ class ViewerActivity : AppCompatActivity() {
                             lyricsText?.text = Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY)
                         }
                     }
-
-                    delay(300)
+                    delay(200)
                 }
             }
         }

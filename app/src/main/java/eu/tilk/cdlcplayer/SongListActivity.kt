@@ -192,6 +192,7 @@ class SongListActivity: AppCompatActivity() {
                     }
 
                     if (rootDir != null) {
+                        contentResolver.takePersistableUriPermission(url, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         findPsarcFiles(rootDir)
                     }
                 } else {
