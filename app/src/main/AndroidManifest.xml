@@ -23,7 +23,7 @@
         </activity>
         <activity
             android:name=".ViewerActivity"
-            android:configChanges="orientation|keyboardHidden"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:keepScreenOn="true"
             android:screenOrientation="landscape"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar.FullScreen"
@@ -35,7 +35,7 @@
                 android:name="android.support.PARENT_ACTIVITY"
                 android:value="eu.tilk.cdlcplayer.SongListActivity" />
         </activity>
-        <activity android:name=".SongListActivity" android:launchMode="singleTop" android:exported="true">
+        <activity android:name=".SongListActivity" android:launchMode="singleTop" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden">
             <meta-data android:name="android.app.searchable"
                 android:resource="@xml/searchable" />
             <intent-filter>
