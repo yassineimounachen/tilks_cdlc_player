@@ -37,7 +37,7 @@ import androidx.dynamicanimation.animation.FloatValueHolder
 import androidx.preference.PreferenceManager
 import eu.tilk.cdlcplayer.SongViewModel
 import eu.tilk.cdlcplayer.shapes.utils.NoteCalculator
-import eu.tilk.cdlcplayer.song.Song2014
+import kotlin.math.roundToLong
 
 class SongGLRenderer(private val context : Context, private val viewModel : SongViewModel) :
     GLSurfaceView.Renderer {
@@ -98,14 +98,14 @@ class SongGLRenderer(private val context : Context, private val viewModel : Song
     }
 
     val gestureListener = object : GestureDetector.SimpleOnGestureListener()  {
-        override fun onDown(e : MotionEvent?) : Boolean {
+        override fun onDown(e : MotionEvent) : Boolean {
             stopFling()
             return true
         }
 
         override fun onFling(
             e1 : MotionEvent?,
-            e2 : MotionEvent?,
+            e2 : MotionEvent,
             velocityX : Float,
             velocityY : Float
         ) : Boolean {
@@ -115,7 +115,7 @@ class SongGLRenderer(private val context : Context, private val viewModel : Song
         }
 
         override fun onScroll(
-            e1 : MotionEvent,
+            e1 : MotionEvent?,
             e2 : MotionEvent,
             distanceX : Float,
             distanceY : Float
@@ -165,7 +165,7 @@ class SongGLRenderer(private val context : Context, private val viewModel : Song
         lastFrameTime = currentTime
 
         val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-        val clickPref = sharedPreferences.getString("click", "on_beats")
+        val clickPref = sharedPreferences.getString("click", "quiet")
 
         fun play(sound : Int) {
             sounds.play(sound, 1f, 1f, 0, 0, 1f)
@@ -189,6 +189,7 @@ class SongGLRenderer(private val context : Context, private val viewModel : Song
                     is Event.Chord ->
                         if (clickPref == "on_notes" && !derived)
                             play(metronome1)
+                    else -> {}
                 }
             }
             scroller.repeat()
@@ -265,6 +266,7 @@ class SongGLRenderer(private val context : Context, private val viewModel : Song
                     if (evt.time <= scroller.currentTime)
                         activeChord = evt.id
                 }
+                else -> {}
             }
             when (shape) {
                 is NoteyShape -> {
@@ -310,7 +312,7 @@ class SongGLRenderer(private val context : Context, private val viewModel : Song
             ))
         draw(Frets())
 
-        if (scroller.currentTime > data.songLength) (context as Activity)!!.finish()
+        if (scroller.currentTime > data.songLength) (context as Activity).finish()
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -330,4 +332,6 @@ class SongGLRenderer(private val context : Context, private val viewModel : Song
     }
 
     fun nextBeats() = scroller.nextBeats()
+    fun currentTime() = if (this::scroller.isInitialized)
+            (scroller.currentTime * 1000.0f).roundToLong() else 0
 }

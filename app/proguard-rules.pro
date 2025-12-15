@@ -45,3 +45,5 @@
 # specific to CDLC Player
 -keep class eu.tilk.cdlcplayer.song.** { *; }
 -keep class eu.tilk.cdlcplayer.manifest.** { *; }
+
+-dontwarn aQute.bnd.annotation.spi.ServiceProvider

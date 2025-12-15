@@ -22,44 +22,58 @@ import android.app.AlertDialog
 import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
-import android.opengl.Visibility
+import android.net.Uri
 import android.os.Bundle
-import android.text.Html
 import android.text.method.LinkMovementMethod
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.SearchView
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.launch
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.Observer
+import androidx.documentfile.provider.DocumentFile
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.progressindicator.CircularProgressIndicator
-import eu.tilk.cdlcplayer.data.SongWithArrangements
-import eu.tilk.cdlcplayer.psarc.PSARCReader
-import eu.tilk.cdlcplayer.song.Song2014
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
+import com.google.android.material.progressindicator.LinearProgressIndicator
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 class SongListActivity: AppCompatActivity() {
     private val songListViewModel : SongListViewModel by viewModels()
 
     override fun onCreate(savedInstanceState : Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_song_list);
+        setContentView(R.layout.activity_song_list)
         val recyclerView = findViewById<RecyclerView>(R.id.recyclerview)
         val emptyView = findViewById<TextView>(R.id.empty_view)
         emptyView.movementMethod = LinkMovementMethod.getInstance()
-        val adapter = SongListAdapter(this) { _, arrangement ->
-            val intent = Intent(this, ViewerActivity::class.java).apply {
-                putExtra(ViewerActivity.SONG_ID, arrangement.persistentID)
+
+        val adapter = SongListAdapter(this,
+            playCallback = { _, arrangement ->
+                val intent = Intent(this, ViewerActivity::class.java).apply {
+                    putExtra(ViewerActivity.SONG_ID, arrangement.persistentID)
+                }
+                startActivity(intent)
+            },
+            deleteCallback = { song ->
+                songListViewModel.deleteSong(song) {
+                    if (it != null) {
+                        Log.d("song_fail", it.stackTraceToString())
+                        AlertDialog.Builder(this).apply {
+                            setTitle(getString(R.string.deleting_song_failed))
+                            setMessage(getString(R.string.could_not_delete_song))
+                            create().show()
+                        }
+                    }
+                }
             }
-            startActivity(intent)
-        }
+        )
+
         emptyView.text = getString(R.string.loading_song_list)
         fun emptyViewVisible(b : Boolean) {
             if (b) {
@@ -109,6 +123,10 @@ class SongListActivity: AppCompatActivity() {
                 intent.addCategory(Intent.CATEGORY_OPENABLE)
                 startActivityForResult(intent, READ_REQUEST_CODE)
             }
+            R.id.scan_dir -> {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                startActivityForResult(intent, DIRECTORY_SCAN_CODE)
+            }
             R.id.settings -> {
                 val intent = Intent(this, SettingsActivity::class.java)
                 startActivity(intent)
@@ -131,23 +149,78 @@ class SongListActivity: AppCompatActivity() {
         return true
     }
 
+    private fun String.truncate(maxLength: Int = 30): String {
+        if (this.length <= maxLength) return this
+        val startLength = (maxLength - 3) / 2
+        val endLength = maxLength - 8 - startLength
+        return "${this.take(startLength)}...${this.takeLast(endLength)}"
+    }
+
+    @Deprecated("Deprecated in Java")
+    @OptIn(ExperimentalUnsignedTypes::class)
     override fun onActivityResult(requestCode : Int, resultCode : Int, data : Intent?) {
-        if (requestCode == READ_REQUEST_CODE && resultCode == Activity.RESULT_OK && data != null) {
-            findViewById<CircularProgressIndicator>(R.id.progressBar)
-                .visibility = View.VISIBLE
+        if ((requestCode == READ_REQUEST_CODE || requestCode == DIRECTORY_SCAN_CODE) && resultCode == Activity.RESULT_OK && data != null) {
+            val progressLayout = findViewById<LinearLayout>(R.id.progressLayout)
+            val progressBar = findViewById<LinearProgressIndicator>(R.id.progressBar)
+            val progressText = findViewById<TextView>(R.id.progressText)
+
+
+
+            songListViewModel.songAddProgress.observeAndCall(this) {
+                progressBar.isIndeterminate = false
+                progressBar.progress = it.roundToInt()
+            }
+
+            songListViewModel.songAddProgress.value = 0.0
+
             val url = data.data
+
             if (url != null) {
-                songListViewModel.decodeAndInsert(url) {
-                    findViewById<CircularProgressIndicator>(R.id.progressBar)
-                        .visibility = View.GONE
-                    if (it != null) {
-                        Log.d("song_fail", it.toString())
-                        AlertDialog.Builder(this).apply {
-                            setTitle(R.string.error_loading_song_title)
-                            setMessage(R.string.error_loading_song_message)
-                            create().show()
+                val psarcs = ArrayList<Uri>()
+                if (requestCode == DIRECTORY_SCAN_CODE) {
+                    val rootDir = DocumentFile.fromTreeUri(this, url)
+                    fun findPsarcFiles(directory: DocumentFile) {
+                        for (file in directory.listFiles()) {
+                            if (file.isDirectory) {
+                                // If it's a directory, scan inside it
+                                findPsarcFiles(file)
+                            } else if (file.isFile && file.name?.endsWith(".psarc") == true) {
+                                // If it's a .psarc file, add its URI to the list
+                                psarcs.add(file.uri)
+                            }
                         }
                     }
+
+                    if (rootDir != null) {
+                        contentResolver.takePersistableUriPermission(url, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        findPsarcFiles(rootDir)
+                    }
+                } else {
+                    psarcs.add(url)
+                }
+
+                lifecycleScope.launch {
+                    progressLayout.visibility = View.VISIBLE
+                    progressText.text = "Preparing import..."
+                    var i = 1
+                    for (psarc in psarcs) {
+                        progressBar.progress = 0
+                        progressBar.isIndeterminate = true
+                        progressText.text = "Importing ${psarc.lastPathSegment?.truncate()}... ($i/${psarcs.size})"
+
+                        val error = songListViewModel.decodeAndInsert(psarc)
+                        if (error != null) {
+                            Log.d("song_fail", error.stackTraceToString())
+                            AlertDialog.Builder(this@SongListActivity).apply {
+                                setTitle(R.string.error_loading_song_title)
+                                setMessage(R.string.error_loading_song_message)
+                                create().show()
+                            }
+                        }
+                        i += 1
+                    }
+                    progressLayout.visibility = View.GONE
+                    Toast.makeText(this@SongListActivity, "Success", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -172,5 +245,6 @@ class SongListActivity: AppCompatActivity() {
 
     companion object {
         private const val READ_REQUEST_CODE = 42
+        private const val DIRECTORY_SCAN_CODE = 43
     }
 }

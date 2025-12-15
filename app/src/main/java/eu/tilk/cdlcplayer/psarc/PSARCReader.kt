@@ -19,8 +19,8 @@ package eu.tilk.cdlcplayer.psarc
 
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.json.JsonMapper
-import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.fasterxml.jackson.module.kotlin.readValue
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import eu.tilk.cdlcplayer.manifest.Attributes
 import eu.tilk.cdlcplayer.manifest.Manifest
 import eu.tilk.cdlcplayer.song.Song2014
@@ -86,7 +86,7 @@ class PSARCReader(private val inputStream : FileInputStream) {
         val data = inflateFile(name)
         val str = data.toString(Charset.forName("UTF8"))
         val mapper = JsonMapper().apply {
-            registerModule(KotlinModule())
+            registerKotlinModule()
             configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
         }
         return mapper.readValue(str)
@@ -131,6 +131,7 @@ class PSARCReader(private val inputStream : FileInputStream) {
                         if (bytes == 0) break
                         output(obuf, bytes)
                     }
+                    inflater.end()
                 } else output(buffer)
             }
             zChunkID++
@@ -153,6 +154,7 @@ class PSARCReader(private val inputStream : FileInputStream) {
                 if (bytes > 0)
                     outStream.write(outBuffer, 0, bytes)
             }
+            inflater.end()
             return outStream.toByteArray()
         }
 

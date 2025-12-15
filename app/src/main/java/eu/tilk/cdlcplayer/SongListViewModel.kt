@@ -20,14 +20,14 @@ package eu.tilk.cdlcplayer
 import android.app.Application
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
+import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
 import com.fasterxml.jackson.dataformat.xml.XmlMapper
-import com.fasterxml.jackson.module.kotlin.KotlinModule
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import eu.tilk.cdlcplayer.data.*
 import eu.tilk.cdlcplayer.psarc.PSARCReader
 import eu.tilk.cdlcplayer.song.Song2014
@@ -35,23 +35,49 @@ import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.lang.Exception
+import java.util.UUID
 
 class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
     private val database = SongRoomDatabase.getDatabase(app)
     private val songDao : SongDao = SongRoomDatabase.getDatabase(app).songDao()
     private val arrangementDao : ArrangementDao = SongRoomDatabase.getDatabase(app).arrangementDao()
+    val songAddProgress = MutableLiveData(0.0)
+
     private fun exceptionHandler(handler : (Throwable) -> Unit) =
         CoroutineExceptionHandler{_ , throwable ->
             viewModelScope.launch(Dispatchers.Main) {
                 handler(throwable)
             }
         }
-    @ExperimentalUnsignedTypes
-    fun decodeAndInsert(uri : Uri, handler : (Throwable?) -> Unit) =
+
+    fun deleteSong(song: SongWithArrangements, handler : (Throwable?) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val outputFile = File(app.cacheDir, "output.CoroutineExceptionHandler {psarc")
+                actualDeleteSong(song)
+                withContext(Dispatchers.Main) { handler(null) }
+            } catch (throwable : Throwable) {
+                withContext(Dispatchers.Main) { handler(throwable) }
+            }
+        }
+    }
+
+    private suspend fun actualDeleteSong(song: SongWithArrangements) {
+        database.withTransaction {
+            for (arrangement in song.arrangements) {
+                app.deleteFile("${arrangement.persistentID}.xml")
+                arrangementDao.deleteArrangement(arrangement.persistentID)
+            }
+            app.deleteFile("${song.song.key}.lyrics.xml")
+            app.deleteFile("${song.song.key}.ogg")
+            songDao.deleteSong(song.song.key)
+        }
+    }
+
+    @ExperimentalUnsignedTypes
+    suspend fun decodeAndInsert(uri: Uri): Throwable? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val outputFile = File(app.cacheDir, UUID.randomUUID().toString() + "output.CoroutineExceptionHandler {psarc")
                 app.contentResolver.openInputStream(uri).use { input ->
                     if (input != null) FileOutputStream(outputFile).use { output ->
                         input.copyTo(output)
@@ -68,7 +94,7 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                         val manifest = psarc.inflateManifest(f)
                         val attributes = manifest.entries.values.first().values.first()
                         when (attributes.arrangementName) {
-                            "Lead", "Rhythm", "Bass" ->
+                            "Lead", "Combo", "Rhythm", "Bass", "Vocals", "JVocals" ->
                                 songs.add(
                                     psarc.inflateSng(
                                         "songs/bin/generic/$baseName.sng",
@@ -77,26 +103,116 @@ class SongListViewModel(private val app : Application) : AndroidViewModel(app) {
                                 )
                         }
                     }
-                    insert(songs)
+
+                    songAddProgress.postValue(1.0)
+
+                    val groupedSongs = songs.groupBy { song2014 -> song2014.songKey }
+
+                    var doneCount = 0
+                    for (songKey in groupedSongs.keys) {
+                        makeOgg(songKey, psarc)
+                        doneCount += 1
+                        songAddProgress.postValue(doneCount * 100.0 / groupedSongs.keys.size)
+                    }
+
+                    insert(groupedSongs)
                 }
-                withContext(Dispatchers.Main) { handler(null) }
+                null
             } catch (throwable : Throwable) {
-                withContext(Dispatchers.Main) { handler(throwable) }
+                throwable
+            }
+        }
+    }
+
+    @OptIn(ExperimentalUnsignedTypes::class)
+    private fun makeOgg(songKey : String, psarc : PSARCReader) {
+        val bnk = File(app.cacheDir, "$songKey.bnk")
+        val wem = File(app.cacheDir, "$songKey.wem")
+        val ogg = File(app.filesDir, "$songKey.ogg")
+        val tmpOgg = File(app.filesDir, "$songKey.ogg.tmp")
+        val pcb = File(app.filesDir, "pcb.bin")
+        if (!pcb.exists()) {
+            pcb.writeBytes(app.assets.open("pcb.bin").readBytes())
+        }
+        val where = File(app.applicationInfo.nativeLibraryDir)
+
+        bnk.writeBytes(psarc.inflateFile("audio/windows/song_${songKey.lowercase()}.bnk"))
+        val bnkInfo =
+            ProcessBuilder("./libvgmstream.so", "-m", bnk.absolutePath)
+                .directory(where)
+                .start()
+        bnkInfo.waitFor()
+        val bnkInfoText =
+            bnkInfo.inputStream.readBytes().toString(Charsets.UTF_8)
+        bnkInfo.inputStream.close()
+        bnk.delete()
+
+        val streamName = """stream name: ([0-9]+)""".toRegex().find(bnkInfoText)!!.groupValues[1]
+        wem.writeBytes(psarc.inflateFile("audio/windows/$streamName.wem"))
+
+        val wem2ogg = ProcessBuilder(
+            "./libww2ogg.so",
+            wem.absolutePath,
+            "--pcb",
+            pcb.absolutePath,
+            "-o",
+            ogg.absolutePath,
+        )
+            .directory(where)
+            .redirectErrorStream(true)
+            .start()
+        wem2ogg.waitFor()
+
+        println("-- ww2ogg output --")
+        println(wem2ogg.inputStream.readBytes().toString(Charsets.UTF_8))
+
+
+        wem.delete()
+
+        val revorb = ProcessBuilder(
+            "./librevorb.so",
+            ogg.absolutePath,
+        )
+            .directory(where)
+            .redirectErrorStream(true)
+            .start()
+
+        revorb.waitFor()
+        println("-- revorb output --")
+        println(revorb.inputStream.readBytes().toString(Charsets.UTF_8))
+
+        if (tmpOgg.exists()) {
+            tmpOgg.renameTo(ogg)
+        }
+    }
+
+    private suspend fun insert(songs : Map<String, List<Song2014>>) {
+        for (song in songs.values.flatten()) {
+            if (song.vocals.isNotEmpty()) {
+                app.openFileOutput("${song.songKey}.lyrics.xml", Context.MODE_PRIVATE).use {
+                    it.write(
+                        XmlMapper().registerKotlinModule()
+                            .writeValueAsBytes(song.vocals)
+                    )
+                }
+            } else {
+                app.openFileOutput("${song.persistentID}.xml", Context.MODE_PRIVATE).use {
+                    it.write(
+                        XmlMapper().registerKotlinModule()
+                            .writeValueAsBytes(song)
+                    )
+                }
             }
         }
 
-    private suspend fun insert(songs : List<Song2014>) {
-        for (song in songs) {
-            app.openFileOutput("${song.persistentID}.xml", Context.MODE_PRIVATE).use {
-                it.write(
-                    XmlMapper().registerModule(KotlinModule())
-                        .writeValueAsBytes(song)
-                )
-            }
-        }
         database.withTransaction {
-            for (song in songs) arrangementDao.insert(Arrangement(song))
-            songDao.insert(Song(songs[0]))
+            for (song in songs.values.flatten()) {
+                if (song.vocals.isEmpty()) arrangementDao.insert(Arrangement(song))
+            }
+
+            for (songKey in songs.keys) {
+                songDao.insert(Song(songs[songKey]!!.first{ song -> song.vocals.isEmpty() }))
+            }
         }
     }
 

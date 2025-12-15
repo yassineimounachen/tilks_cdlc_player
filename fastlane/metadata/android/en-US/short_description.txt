@@ -1,1 +1,0 @@
-A player for guitar tabs in CDLC format
