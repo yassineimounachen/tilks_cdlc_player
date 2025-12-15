@@ -1,4 +1,4 @@
-> [This repo](https://github.com/yassineimounachen/tilks_cdlc_player) an attempt at improving [tilk's cdlc_player](https://github.com/tilk/cdlc_player) by adding audio playback, lyrics display and other minor changes. You can download a build from the [releases section](https://github.com/yassineimounachen/tilks_cdlc_player/releases). Below is the original README.
+> [This repo](https://github.com/yassineimounachen/tilks_cdlc_player) is an attempt at improving [tilk's cdlc_player](https://github.com/tilk/cdlc_player) by adding audio playback, lyrics display and other minor changes. You can download a build from the [releases section](https://github.com/yassineimounachen/tilks_cdlc_player/releases). Below is the original README.
 
 # cdlc_player
 
